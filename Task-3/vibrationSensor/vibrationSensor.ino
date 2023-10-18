@@ -7,6 +7,7 @@ TFT_eSPI tft;
 SensirionI2CSht4x sht4x;
 
 void setup() {
+  //Serial
   Serial.begin(115200);
     while (!Serial) {
       delay(100);
