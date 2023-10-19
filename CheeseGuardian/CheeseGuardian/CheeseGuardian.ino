@@ -27,6 +27,7 @@
 #define LCD_BACKLIGHT (72Ul) // Control Pin of LCD
 #define SAFETVOCLIMIT 500 //or 80 ppb  https://www.dcceew.gov.au/environment/protection/npi/substances/fact-sheets/total-volatile-organic-compounds
 #define SAFEC02LIMIT 5000 // ppm https://www.fsis.usda.gov/sites/default/files/media_file/2020-08/Carbon-Dioxide.pdf
+#define WIFITIMEOUT 100
 #define HARDERROR 1
 #define SERIALHARDERROR 0
 //Screen
@@ -219,7 +220,7 @@ void SDSetup(){
 }
 
 void SetupWiFi() {
-  delay(10); // small delay to prevent error
+  delay(100); // small delay to prevent error
   tft.setTextSize(2);
   tft.setCursor((SCREENWIDTH - tft.textWidth("Connecting to Wi-Fi..")) / 2, 120);
   tft.print("Connecting to Wi-Fi..");
@@ -231,7 +232,8 @@ void SetupWiFi() {
   long i=0;
   uint color = TFT_WHITE;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    delay(WIFITIMEOUT);
+    WiFi.begin(ssid, password); // Connecting WiFi
     Serial.print(".");
     ++i;
     tft.drawCircle(SCREENWIDTH/2, SCREENHEIGHT/2 + 70, i*2, color);
@@ -257,7 +259,7 @@ void SetupWiFi() {
 }
 
 // Define reconnect function
-void ReconnectWiFi() {
+void ReconnectMQTT() {
   // Loop until we're reconnected
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
@@ -295,8 +297,12 @@ void setup() {
  
 void loop() {
   //Reconnect broker
+  if(WiFi.status() != WL_CONNECTED){
+    Serial.println("Reconnecting WiFi");
+    SetupWiFi();
+  }
   if (!client.connected()) {
-    ReconnectWiFi();
+    ReconnectMQTT();
   }
   //Variables definition
   float temperature;
@@ -306,7 +312,7 @@ void loop() {
   u16 tvoc_ppb, co2_eq_ppm;
 
   ReadData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
-  SerialData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
+  //SerialData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
   ScreenData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
   Credits();
   data = CreatePayload(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
