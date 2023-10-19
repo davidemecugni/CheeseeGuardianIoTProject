@@ -13,7 +13,7 @@ const char* ssid = "Davide"; // your mobile hotspot SSID (WiFi Name)
 const char* password = "Davide31415";  // your mobile hotspot password (WiFi Password)
 const char* mqtt_server = "broker.hivemq.com";  // MQTT Broker URL
 const char* ID = "Wio-Terminal-Client-xxxx";  // Name of you device, must be unique. Replace xxxx with your last 4 digits of student ID 
-const char* topic = "Wio-temp"; //Topic from your device
+const char* topic = "Wio-CheeseGuardian"; //Topic from your device
 
 // Declare all variables and objects here
 SensirionI2CSht4x sht4x;
