@@ -7,6 +7,8 @@
 //tVOC and CO2 sensor
 #include "sensirion_common.h"
 #include "sgp30.h"
+//Accelerator library
+#include"LIS3DHTR.h"
 //Used for conversions
 #include <math.h>
 //SD card
@@ -28,14 +30,20 @@
 #define SAFETVOCLIMIT 500 //or 80 ppb  https://www.dcceew.gov.au/environment/protection/npi/substances/fact-sheets/total-volatile-organic-compounds
 #define SAFEC02LIMIT 5000 // ppm https://www.fsis.usda.gov/sites/default/files/media_file/2020-08/Carbon-Dioxide.pdf
 #define WIFITIMEOUT 100
+#define MQTTTIMEOUT 1000
 #define HARDERROR 1
 #define SERIALHARDERROR 0
+#define MAINDELAY 1000
+#define STDX -0.54
+#define STDY -0.02
+#define STDZ -0.86
 //Screen
 TFT_eSPI tft;
 //TempHumiSensor
 SensirionI2CSht4x sht4x;
+//Gyro
+LIS3DHTR<TwoWire>  gyro;
 //WiFi
-// Update these variables accordingly
 const char* ssid = "Davide"; // your mobile hotspot SSID (WiFi Name)
 const char* password = "Davide31415";  // your mobile hotspot password (WiFi Password)
 const char* mqtt_server = "broker.hivemq.com";  // MQTT Broker URL
@@ -55,7 +63,7 @@ void Credits(){
   tft.drawString("CheeseGuardian", SCREENWIDTH-86, SCREENHEIGHT- 10);
   tft.setTextSize(DEFAULTTEXTSIZE);
 }
-void SerialData(float* temperature, float* humidity, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm){
+void SerialData(float* temperature, float* humidity, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm, float* x_raw, float* y_raw, float* z_raw){
   Serial.print("Temperature:");
   Serial.println(*temperature);
   Serial.print("Humidity:");
@@ -70,9 +78,17 @@ void SerialData(float* temperature, float* humidity, float* ah, int *flood, u16*
   Serial.print("CO2eq:");
   Serial.print(*co2_eq_ppm);
   Serial.println("ppm");
+  Serial.print("X:");
+  Serial.print(*x_raw);
+  Serial.print(", ");
+  Serial.print("Y:");
+  Serial.print(*y_raw);
+  Serial.print(", ");
+  Serial.print("Z:");
+  Serial.print(*z_raw);
   Serial.print("\n\n");
 }
-void ScreenData(float* temperature, float* humidity, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm){
+void ScreenData(float* temperature, float* humidity, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm, float* x_raw, float* y_raw, float* z_raw){
   tft.drawString("Temp:",70,20);
   tft.setCursor(200,20);
   tft.print(*temperature);
@@ -88,9 +104,13 @@ void ScreenData(float* temperature, float* humidity, float* ah, int *flood, u16*
   tft.drawString("CO2eq:",70,140);
   tft.setCursor(200,140);
   tft.print((float)*co2_eq_ppm);
+  tft.setCursor(40,170);
+  tft.print(String("X:")+String(*x_raw)+String(",")+
+         String("Y:")+String(*y_raw)+String(",")+
+         String("Z:")+String(*z_raw));
 }
 
-bool ReadData(float* temperature, float* humidity, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm){
+bool ReadData(float* temperature, float* humidity, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm, float* x_raw, float* y_raw, float* z_raw){
   //Error data for the temp/humi sensor
   uint16_t error_temp_humi;
   char errorMessage[256];
@@ -116,6 +136,10 @@ bool ReadData(float* temperature, float* humidity, float* ah, int *flood, u16* t
     errorToString(error_voc_co2, errorMessage, 256);
     Serial.println(errorMessage);
   }
+  //Gyro
+  *x_raw = gyro.getAccelerationX();
+  *y_raw = gyro.getAccelerationY();
+  *z_raw = gyro.getAccelerationZ();
 }
 void ScreenTerminalSetup(){
   //Serial setup
@@ -178,6 +202,11 @@ void TVOCCO2Setup(){
     }
     err = sgp_iaq_init();
 }
+void GyroSetup(){
+  gyro.begin(Wire1);
+  gyro.setOutputDataRate(LIS3DHTR_DATARATE_25HZ);
+  gyro.setFullScaleRange(LIS3DHTR_RANGE_2G);
+}
 void SDSetup(){
   Serial.print("Initializing SD card...");
   if (!SD.begin(SDCARD_SS_PIN, SDCARD_SPI)) {
@@ -221,6 +250,7 @@ void SDSetup(){
 
 void SetupWiFi() {
   delay(100); // small delay to prevent error
+  tft.fillScreen(TFT_BLACK); 
   tft.setTextSize(2);
   tft.setCursor((SCREENWIDTH - tft.textWidth("Connecting to Wi-Fi..")) / 2, 120);
   tft.print("Connecting to Wi-Fi..");
@@ -260,48 +290,105 @@ void SetupWiFi() {
 
 // Define reconnect function
 void ReconnectMQTT() {
+  tft.fillScreen(TFT_BLACK); 
   // Loop until we're reconnected
+  int i=0;
   while (!client.connected()) {
+    tft.setCursor((SCREENWIDTH - tft.textWidth("Connecting to MQTT..")) / 2, 120);
+    tft.print("Connecting to MQTT..");
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
     if (client.connect(ID)) {
-      Serial.println("connected");
+      Serial.println("");
+      Serial.println("MQTT connected");
+      tft.fillScreen(TFT_BLACK);
+      tft.setCursor((320 - tft.textWidth("MQTT connected!")) / 2, 120);
+      tft.print("MQTT connected!");
+      delay(200);
       // Once connected, publish an announcement...
       client.publish(topic, "CheeseGuardian");
       // ... and resubscribe
       //client.subscribe("subTopic");
+      tft.fillScreen(TFT_BLACK);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println("Trying again in 5 seconds");
       // Wait 5 seconds before retrying
-      delay(5000);
+      delay(MQTTTIMEOUT);
+    }
+    Serial.print(".");
+    ++i;
+    uint color = TFT_WHITE;
+    tft.drawCircle(SCREENWIDTH/2, SCREENHEIGHT/2 + 70, i*2, color);
+    if(i>15){
+      i=0;
+      if(color == TFT_WHITE){
+        color = TFT_BLACK;
+      }
+      else{
+        color = TFT_WHITE;
+      }
     }
   }
+  tft.fillScreen(TFT_BLACK); 
+}
+void SwitchSetup(){
+  pinMode(WIO_5S_UP, INPUT_PULLUP);
+  pinMode(WIO_5S_DOWN, INPUT_PULLUP);
+  pinMode(WIO_5S_LEFT, INPUT_PULLUP);
+  pinMode(WIO_5S_RIGHT, INPUT_PULLUP);
+  pinMode(WIO_5S_PRESS, INPUT_PULLUP);
+  /*
+    // put your main code here, to run repeatedly:
+   if (digitalRead(WIO_5S_UP) == LOW) {
+    Serial.println("5 Way Up");
+   }
+   else if (digitalRead(WIO_5S_DOWN) == LOW) {
+    Serial.println("5 Way Down");
+   }
+   else if (digitalRead(WIO_5S_LEFT) == LOW) {
+    Serial.println("5 Way Left");
+   }
+   else if (digitalRead(WIO_5S_RIGHT) == LOW) {
+    Serial.println("5 Way Right");
+   }
+   else if (digitalRead(WIO_5S_PRESS) == LOW) {
+    Serial.println("5 Way Press");
+   }
+   delay(200);
+   */
 }
 
-String CreatePayload(float* t, float* h, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm){
+String CreatePayload(float* t, float* h, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm, float* x_raw, float* y_raw, float* z_raw){
   return String("T:")+String(*t)+String(",")+
          String("H:")+String(*h)+String(",")+
          String("AH:")+String(*ah)+String(",")+
          String("tVOC:")+String(*tvoc_ppb)+String(",")+
-         String("CO2:")+String(*co2_eq_ppm)+String("\n");
+         String("CO2:")+String(*co2_eq_ppm)+String(",")+
+         String("X:")+String(*x_raw)+String(",")+
+         String("Y:")+String(*y_raw)+String(",")+
+         String("Z:")+String(*z_raw)+String("\n");
 }
+
 void setup() {
   ScreenTerminalSetup();
   TVOCCO2Setup();
+  GyroSetup();
   SDSetup();
   SetupWiFi();
   client.setServer(mqtt_server, 1883); // Connect the MQTT Server
 } 
- 
+
 void loop() {
-  //Reconnect broker
+  //Reconnect WiFi
   if(WiFi.status() != WL_CONNECTED){
     Serial.println("Reconnecting WiFi");
     SetupWiFi();
   }
+  //Reconnect to server
   if (!client.connected()) {
+    Serial.println("Reconnecting MQTT");
     ReconnectMQTT();
   }
   //Variables definition
@@ -310,15 +397,15 @@ void loop() {
   float ah;
   int flood;
   u16 tvoc_ppb, co2_eq_ppm;
-
-  ReadData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
-  //SerialData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
-  ScreenData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
+  float x_raw, y_raw, z_raw;
+  ReadData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
+  //SerialData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
+  ScreenData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
   Credits();
-  data = CreatePayload(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm);
+  //MQTT
+  data = CreatePayload(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
   data.toCharArray(msg, 100);
   Serial.println(msg);
   client.publish(topic, msg);
-
-  delay(1000);
+  delay(MAINDELAY);
 }
