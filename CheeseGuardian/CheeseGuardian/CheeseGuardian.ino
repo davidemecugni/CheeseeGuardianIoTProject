@@ -24,6 +24,7 @@
 #define SCREENWIDTH 320
 #define SCREENHEIGHT 240
 //Values are around 1 or 2 if untouched and dry, 50 if touched, >200 if wet
+#define FLOODMAX 40
 #define FLOODPIN A0
 #define FLOODLIMIT 150
 #define LCD_BACKLIGHT (72Ul) // Control Pin of LCD
@@ -37,12 +38,14 @@
 #define STDX -0.54
 #define STDY -0.02
 #define STDZ -0.86
+#define MSELIMIT 0.97
 //Screen
 TFT_eSPI tft;
 //TempHumiSensor
 SensirionI2CSht4x sht4x;
 //Gyro
 LIS3DHTR<TwoWire>  gyro;
+float pastGyroValues[3][3];
 //WiFi
 const char* ssid = "Davide"; // your mobile hotspot SSID (WiFi Name)
 const char* password = "Davide31415";  // your mobile hotspot password (WiFi Password)
@@ -140,6 +143,7 @@ bool ReadData(float* temperature, float* humidity, float* ah, int *flood, u16* t
   *x_raw = gyro.getAccelerationX();
   *y_raw = gyro.getAccelerationY();
   *z_raw = gyro.getAccelerationZ();
+  StoreGyro(x_raw, y_raw, z_raw);
 }
 void ScreenTerminalSetup(){
   //Serial setup
@@ -202,10 +206,39 @@ void TVOCCO2Setup(){
     }
     err = sgp_iaq_init();
 }
+
 void GyroSetup(){
   gyro.begin(Wire1);
   gyro.setOutputDataRate(LIS3DHTR_DATARATE_25HZ);
   gyro.setFullScaleRange(LIS3DHTR_RANGE_2G);
+}
+void StoreGyro(float* x_raw, float* y_raw, float* z_raw){
+  for(int i=0;i<2;i++){
+    pastGyroValues[i][0] = pastGyroValues[i+1][0];
+    pastGyroValues[i][1] = pastGyroValues[i+1][1];
+    pastGyroValues[i][2] = pastGyroValues[i+1][2];
+  }
+  pastGyroValues[2][0] = *x_raw;
+  pastGyroValues[2][1] = *x_raw;
+  pastGyroValues[2][2] = *x_raw;
+}
+float MSEGyroValues(){
+  float mse1 = pow(abs(pastGyroValues[2][0])-abs(pastGyroValues[0][0]),2)+pow(abs(pastGyroValues[2][1])-abs(pastGyroValues[0][1]),2)+pow(abs(pastGyroValues[2][2])-abs(pastGyroValues[0][2]),2);
+  float mse2 = pow(abs(pastGyroValues[2][0])-abs(pastGyroValues[1][0]),2)+pow(abs(pastGyroValues[2][1])-abs(pastGyroValues[1][1]),2)+pow(abs(pastGyroValues[2][2])-abs(pastGyroValues[1][2]),2);
+  return sqrt(mse1) + sqrt(mse2);
+}
+bool DetectEarthquake(float* x_raw, float* y_raw, float* z_raw){
+
+  float mse = pow(abs(*x_raw)-abs(STDX),2)+pow(abs(*y_raw)-abs(STDY),2)+pow(abs(*z_raw)-abs(STDZ),2);
+  mse = sqrt(mse);
+  Serial.println(*x_raw);
+  Serial.println(*y_raw);
+  Serial.println(*z_raw);
+  Serial.println(mse);
+  return mse > MSELIMIT;
+}
+bool DetectFlood(int* flood){
+  return *flood > FLOODMAX;
 }
 void SDSetup(){
   Serial.print("Initializing SD card...");
@@ -399,6 +432,7 @@ void loop() {
   u16 tvoc_ppb, co2_eq_ppm;
   float x_raw, y_raw, z_raw;
   ReadData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
+  /*
   //SerialData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
   ScreenData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
   Credits();
@@ -406,6 +440,8 @@ void loop() {
   data = CreatePayload(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
   data.toCharArray(msg, 100);
   Serial.println(msg);
+  */
+  DetectEarthquake(&x_raw, &y_raw, &z_raw);
   client.publish(topic, msg);
   delay(MAINDELAY);
 }
