@@ -45,6 +45,7 @@ TFT_eSPI tft;
 SensirionI2CSht4x sht4x;
 //Gyro
 LIS3DHTR<TwoWire>  gyro;
+//FIFO data structure to valuate changes in the gyro
 float pastGyroValues[3][3];
 //WiFi
 const char* ssid = "Davide"; // your mobile hotspot SSID (WiFi Name)
@@ -143,6 +144,7 @@ bool ReadData(float* temperature, float* humidity, float* ah, int *flood, u16* t
   *x_raw = gyro.getAccelerationX();
   *y_raw = gyro.getAccelerationY();
   *z_raw = gyro.getAccelerationZ();
+  //Stores the values
   StoreGyro(x_raw, y_raw, z_raw);
 }
 void ScreenTerminalSetup(){
@@ -211,6 +213,15 @@ void GyroSetup(){
   gyro.begin(Wire1);
   gyro.setOutputDataRate(LIS3DHTR_DATARATE_25HZ);
   gyro.setFullScaleRange(LIS3DHTR_RANGE_2G);
+  float x_raw, y_raw, z_raw;
+  Serial.println("Calibrationg gyro");
+  for(int i=0;i<2;i++){
+  x_raw = gyro.getAccelerationX();
+  y_raw = gyro.getAccelerationY();
+  z_raw = gyro.getAccelerationZ();
+  StoreGyro(&x_raw, &y_raw, &z_raw);
+  delay(50);
+  }
 }
 void StoreGyro(float* x_raw, float* y_raw, float* z_raw){
   for(int i=0;i<2;i++){
@@ -223,19 +234,13 @@ void StoreGyro(float* x_raw, float* y_raw, float* z_raw){
   pastGyroValues[2][2] = *x_raw;
 }
 float MSEGyroValues(){
-  float mse1 = pow(abs(pastGyroValues[2][0])-abs(pastGyroValues[0][0]),2)+pow(abs(pastGyroValues[2][1])-abs(pastGyroValues[0][1]),2)+pow(abs(pastGyroValues[2][2])-abs(pastGyroValues[0][2]),2);
-  float mse2 = pow(abs(pastGyroValues[2][0])-abs(pastGyroValues[1][0]),2)+pow(abs(pastGyroValues[2][1])-abs(pastGyroValues[1][1]),2)+pow(abs(pastGyroValues[2][2])-abs(pastGyroValues[1][2]),2);
-  return sqrt(mse1) + sqrt(mse2);
+  float mse1 = pow(abs(pastGyroValues[2][0]-pastGyroValues[0][0]),2)+pow(abs(pastGyroValues[2][1]-pastGyroValues[0][1]),2)+pow(abs(pastGyroValues[2][2]-pastGyroValues[0][2]),2);
+  float mse2 = pow(abs(pastGyroValues[2][0]-pastGyroValues[1][0]),2)+pow(abs(pastGyroValues[2][1]-pastGyroValues[1][1]),2)+pow(abs(pastGyroValues[2][2]-pastGyroValues[1][2]),2);
+  return (sqrt(mse1) + sqrt(mse2))/2;
 }
-bool DetectEarthquake(float* x_raw, float* y_raw, float* z_raw){
-
-  float mse = pow(abs(*x_raw)-abs(STDX),2)+pow(abs(*y_raw)-abs(STDY),2)+pow(abs(*z_raw)-abs(STDZ),2);
-  mse = sqrt(mse);
-  Serial.println(*x_raw);
-  Serial.println(*y_raw);
-  Serial.println(*z_raw);
-  Serial.println(mse);
-  return mse > MSELIMIT;
+bool DetectEarthquake(){
+  Serial.println(MSEGyroValues());
+  return MSEGyroValues() > MSELIMIT;
 }
 bool DetectFlood(int* flood){
   return *flood > FLOODMAX;
@@ -441,7 +446,7 @@ void loop() {
   data.toCharArray(msg, 100);
   Serial.println(msg);
   */
-  DetectEarthquake(&x_raw, &y_raw, &z_raw);
+  DetectEarthquake();
   client.publish(topic, msg);
   delay(MAINDELAY);
 }
