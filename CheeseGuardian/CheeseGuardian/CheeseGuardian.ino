@@ -34,11 +34,10 @@
 #define MQTTTIMEOUT 1000
 #define HARDERROR 1
 #define SERIALHARDERROR 0
-#define MAINDELAY 1000
 #define STDX -0.54
 #define STDY -0.02
 #define STDZ -0.86
-#define MSELIMIT 0.97
+#define MSELIMIT 0.05
 //Screen
 TFT_eSPI tft;
 //TempHumiSensor
@@ -59,7 +58,11 @@ PubSubClient client(wioClient);
 //Payload
 char msg[100];
 String data;
-
+//Alert
+bool alert = false;
+bool alertSound = true;
+//Delay
+int mainDelay = 1000;
 void Credits(){
   tft.setTextSize(1);
   tft.drawRect(0,SCREENHEIGHT-11,SCREENWIDTH,SCREENHEIGHT-3,TFT_MAGENTA);
@@ -239,7 +242,6 @@ float MSEGyroValues(){
   return (sqrt(mse1) + sqrt(mse2))/2;
 }
 bool DetectEarthquake(){
-  Serial.println(MSEGyroValues());
   return MSEGyroValues() > MSELIMIT;
 }
 bool DetectFlood(int* flood){
@@ -344,7 +346,7 @@ void ReconnectMQTT() {
       tft.print("MQTT connected!");
       delay(200);
       // Once connected, publish an announcement...
-      client.publish(topic, "CheeseGuardian");
+      //client.publish(topic, "CheeseGuardian");
       // ... and resubscribe
       //client.subscribe("subTopic");
       tft.fillScreen(TFT_BLACK);
@@ -370,6 +372,9 @@ void ReconnectMQTT() {
     }
   }
   tft.fillScreen(TFT_BLACK); 
+}
+void BuzzerSetup(){
+  pinMode(WIO_BUZZER, OUTPUT);
 }
 void SwitchSetup(){
   pinMode(WIO_5S_UP, INPUT_PULLUP);
@@ -398,15 +403,14 @@ void SwitchSetup(){
    */
 }
 
-String CreatePayload(float* t, float* h, float* ah, int *flood, u16* tvoc_ppb, u16* co2_eq_ppm, float* x_raw, float* y_raw, float* z_raw){
+String CreatePayload(float* t, float* h, float* ah, u16* tvoc_ppb, u16* co2_eq_ppm, bool* flood, bool* earthquake){
   return String("T:")+String(*t)+String(",")+
-         String("H:")+String(*h)+String(",")+
-         String("AH:")+String(*ah)+String(",")+
-         String("tVOC:")+String(*tvoc_ppb)+String(",")+
-         String("CO2:")+String(*co2_eq_ppm)+String(",")+
-         String("X:")+String(*x_raw)+String(",")+
-         String("Y:")+String(*y_raw)+String(",")+
-         String("Z:")+String(*z_raw)+String("\n");
+      String("H:")+String(*h)+String(",")+
+      String("AH:")+String(*ah)+String(",")+
+      String("tVOC:")+String(*tvoc_ppb)+String(",")+
+      String("CO2:")+String(*co2_eq_ppm)+String(",")+
+      String("Flood:")+String(*flood)+String(",")+
+      String("Earthquake:")+String(*earthquake)+String("\n");
 }
 
 void setup() {
@@ -415,6 +419,7 @@ void setup() {
   GyroSetup();
   SDSetup();
   SetupWiFi();
+  SwitchSetup();
   client.setServer(mqtt_server, 1883); // Connect the MQTT Server
 } 
 
@@ -429,24 +434,59 @@ void loop() {
     Serial.println("Reconnecting MQTT");
     ReconnectMQTT();
   }
+  //5 Way switch
+  if (digitalRead(WIO_5S_UP) == LOW) {
+    mainDelay += 100;
+    Serial.print("Current delay: ");
+    Serial.println(mainDelay);
+   }
+   else if (digitalRead(WIO_5S_DOWN) == LOW) {
+    mainDelay -= 100;
+    Serial.print("Current delay: ");
+    Serial.println(mainDelay);
+   }
+   else if (digitalRead(WIO_5S_LEFT) == LOW) {
+    Serial.println("5 Way Left");
+   }
+   else if (digitalRead(WIO_5S_RIGHT) == LOW) {
+    Serial.println("5 Way Right");
+   }
+   else if (digitalRead(WIO_5S_PRESS) == LOW) {
+    Serial.print("Sound alarm ");
+    if(alertSound){
+      Serial.println("off");
+    }
+    else{
+      Serial.println("on");
+    }
+    alertSound ^= 1;
+   }
   //Variables definition
   float temperature;
   float humidity;
   float ah;
-  int flood;
+  int floodData;
   u16 tvoc_ppb, co2_eq_ppm;
   float x_raw, y_raw, z_raw;
-  ReadData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
-  /*
+  ReadData(&temperature,&humidity,&ah,&floodData,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
+  bool flood = DetectFlood(&floodData);
+  bool earthquake = DetectEarthquake();
+  alert = flood || earthquake;
+  if(alert){
+    if(alertSound){
+      analogWrite(WIO_BUZZER, 128);
+    }
+  }
+  else{
+    analogWrite(WIO_BUZZER, 0);
+  }
   //SerialData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
-  ScreenData(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
+  ScreenData(&temperature,&humidity,&ah,&floodData,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
   Credits();
   //MQTT
-  data = CreatePayload(&temperature,&humidity,&ah,&flood,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
+  data = CreatePayload(&temperature,&humidity,&ah,&tvoc_ppb,&co2_eq_ppm, &flood, &earthquake);
   data.toCharArray(msg, 100);
   Serial.println(msg);
-  */
-  DetectEarthquake();
   client.publish(topic, msg);
-  delay(MAINDELAY);
+  delay(mainDelay);
 }
