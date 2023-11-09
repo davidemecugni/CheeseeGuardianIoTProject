@@ -50,6 +50,7 @@ def subscribe(client: mqtt_client):
             key, value = item.split(':')
             data_dict[key] = value
         data = data_dict
+        print(data)
         cursor.execute('INSERT INTO sensor_data(temperature,humidity,abs_humidity,tVOC,CO2,flood,earthquake) VALUES (?,?,?,?,?,?,?)', \
                        (data['T'],data['H'],data['AH'],data['tVOC'],data['CO2'],data['Flood'],data['Earthquake']))
         #print(data_dict)

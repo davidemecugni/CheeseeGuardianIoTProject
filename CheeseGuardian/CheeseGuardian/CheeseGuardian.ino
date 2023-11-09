@@ -31,7 +31,7 @@
 #define SAFETVOCLIMIT 500 //or 80 ppb  https://www.dcceew.gov.au/environment/protection/npi/substances/fact-sheets/total-volatile-organic-compounds
 #define SAFEC02LIMIT 5000 // ppm https://www.fsis.usda.gov/sites/default/files/media_file/2020-08/Carbon-Dioxide.pdf
 #define WIFITIMEOUT 100
-#define MQTTTIMEOUT 1000
+#define MQTTTIMEOUT 500
 #define HARDERROR 1
 #define SERIALHARDERROR 0
 #define STDX -0.54
@@ -59,7 +59,6 @@ PubSubClient client(wioClient);
 char msg[100];
 String data;
 //Alert
-bool alert = false;
 bool alertSound = true;
 //Delay
 int mainDelay = 1000;
@@ -353,7 +352,9 @@ void ReconnectMQTT() {
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
-      Serial.println("Trying again in 5 seconds");
+      Serial.print("Trying again in ");
+      Serial.print(MQTTTIMEOUT);
+      Serial.println("milliseconds");
       // Wait 5 seconds before retrying
       delay(MQTTTIMEOUT);
     }
@@ -471,10 +472,18 @@ void loop() {
   ReadData(&temperature,&humidity,&ah,&floodData,&tvoc_ppb,&co2_eq_ppm, &x_raw, &y_raw, &z_raw);
   bool flood = DetectFlood(&floodData);
   bool earthquake = DetectEarthquake();
-  alert = flood || earthquake;
-  if(alert){
-    if(alertSound){
+  if(alertSound){
+    if(flood){
+      analogWrite(WIO_BUZZER, 100);
+    }
+    else if(earthquake){
       analogWrite(WIO_BUZZER, 128);
+    }
+    else if(tvoc_ppb > SAFETVOCLIMIT){
+      analogWrite(WIO_BUZZER, 80);
+    }
+    else if(co2_eq_ppm > SAFEC02LIMIT){
+      analogWrite(WIO_BUZZER, 60);
     }
   }
   else{
@@ -487,6 +496,9 @@ void loop() {
   data = CreatePayload(&temperature,&humidity,&ah,&tvoc_ppb,&co2_eq_ppm, &flood, &earthquake);
   data.toCharArray(msg, 100);
   Serial.println(msg);
-  client.publish(topic, msg);
+  if(!client.publish(topic, msg)){
+    Serial.println("Reconnecting MQTT");
+    ReconnectMQTT();
+  }
   delay(mainDelay);
 }
