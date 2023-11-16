@@ -8,7 +8,7 @@ topic = "Wio-CheeseGuardian"
 client_id = f'subscribe-{random.randint(0, 100)}'
 # username = 'emqx'
 # password = 'public'
-conn = sqlite3.connect('sensor_data.db')
+conn = sqlite3.connect('C://Users/winbu/Desktop/IoT/DataManagment/sensor_data.db')
 cursor = conn.cursor()
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS sensor_data (
@@ -53,7 +53,6 @@ def subscribe(client: mqtt_client):
         print(data)
         cursor.execute('INSERT INTO sensor_data(temperature,humidity,abs_humidity,tVOC,CO2,flood,earthquake) VALUES (?,?,?,?,?,?,?)', \
                        (data['T'],data['H'],data['AH'],data['tVOC'],data['CO2'],data['Flood'],data['Earthquake']))
-        #print(data_dict)
         conn.commit()
 
     client.subscribe(topic)
