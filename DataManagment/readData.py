@@ -1,3 +1,6 @@
+"""Receives the data as a subscriber from the MQTT server
+and saves it to a SQLlite DB"""
+
 import random, time
 from paho.mqtt import client as mqtt_client
 import sqlite3

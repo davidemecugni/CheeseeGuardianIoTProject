@@ -1,3 +1,6 @@
+"""Tried SVM Machine Learning setup on a cancer dataset to 
+see if it would be appropriate for my CheeseGuardian application"""
+
 # Load the important packages
 from sklearn.datasets import load_breast_cancer
 import matplotlib.pyplot as plt
@@ -6,9 +9,11 @@ from sklearn.svm import SVC
 
 # Load the datasets
 cancer = load_breast_cancer()
-X = cancer.data[:, :2]
-y = cancer.target
+X = cancer.data
 
+X = X[:, :2]
+y = cancer.target
+#print(X,y)
 #Build the model
 svm = SVC(kernel="rbf", gamma=2.5, C=1.0)
 # Trained the model
